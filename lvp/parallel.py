@@ -108,7 +108,7 @@ class ParallelProcessing:
         self._logger.error(result)
         os._exit(1)
 
-    def init_child(self, par_lock_, *args):
+    def init_child(self, par_lock_: Lock, *args) -> None:
         global par_lock
         par_lock = par_lock_
 
@@ -121,7 +121,7 @@ class ParallelProcessing:
     def critical_section(self, *args, **kwargs):
         raise NotImplementedError("Process not defined ('NotImplementedError' exception).")
 
-    def get_shared_vars(self, manager: Manager):
+    def get_shared_vars(self, manager: Manager) -> tuple:
         return tuple()
 
     def run(self, args_list: Iterator[tuple], use_multithreading: bool = False) -> dict:
