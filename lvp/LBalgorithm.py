@@ -1,90 +1,17 @@
 import logging
 import random
-from multiprocessing import Manager, Lock
 from typing import Dict, List
 
 import numpy as np
 import pandas as pd
 
-from lvp.objects import Parameters, Agent, Task
-from lvp.parallel import ParallelProcessing
+from lvp.LvpParallel import LvpParallel
+from lvp.models.Agent import Agent
+from lvp.models.Parameters import Parameters
+from lvp.models.Task import Task
+from lvp.tools import save_pickle, upload_pickle
 
-
-class LvpParallel(ParallelProcessing):
-    def __init__(self, request_dic, *args, **kwargs):
-        super(LvpParallel, self).__init__(*args, **kwargs)
-        self.request_dic = request_dic
-
-    def process(self, agent: Agent, requests_dic, get_tasks: int, step: int, response_dict: dict) -> None:
-        """
-        Agent distribute it's tasks among neibours
-        :param agent:  agent instance
-        :param requests_dic: dictionary of requests
-        :param get_tasks: result of counting local voting protocol for agent
-        :return: dict {id send to: tasks to send}
-        """
-        agent_id = agent.id
-        ag_tasks = len(agent.tasks)
-
-        logging.basicConfig(filename=f'cache/loggs/_loggs_lvp_{agent_id}.log', filemode='a', level=logging.INFO)
-        logging.info(f"\n\nStep {step}")
-
-        requests_neib = [ind for ind in requests_dic.keys() if ind in agent.neighb]
-        response = []
-        for req_id in requests_neib:
-            if get_tasks == 0:
-                break
-            num_tasks = min(self._enter_crit_sec(req_id, get_tasks), ag_tasks)
-
-            if not num_tasks:
-                continue
-
-            logging.info(f"Agent {agent_id} send {num_tasks} tasks to {req_id}")
-            response.append((req_id, num_tasks))
-            get_tasks -= num_tasks
-            ag_tasks -= num_tasks
-
-        response_dict[agent_id] = response
-        logging.info(f"Agent {agent_id} ended sending")
-
-    def init_child(self, par_lock_: Lock, request_dic_: Dict[int, int] = None, *args) -> None:
-        """
-        Initiation used by each process to create shared variables
-        :param par_lock_: lock used to update shared variable
-        :param request_dic_: shared variable
-        """
-        super(LvpParallel, self).init_child(par_lock_)
-        global request_dic
-        request_dic = request_dic_
-
-    def get_shared_vars(self, manager: Manager):
-        """
-        Create and return variable that would be shared among processes
-        :param manager: multiprocessing manager used to create processes
-        :return: created variable
-        """
-        request_dic = manager.dict()
-        request_dic.update(self.request_dic)
-        return (request_dic,)
-
-    def critical_section(self, req_id: int, can_send: int) -> int:
-        """
-        Change shared dictionary requests
-        :param req_id: neighbour from whom want to take tasks
-        :param can_send: number of tasks that can send
-        :return: number of tasks to send
-        """
-        if req_id not in request_dic:
-            return 0
-
-        req = abs(request_dic[req_id])
-        if req > can_send:
-            request_dic[req_id] = -(req - can_send)
-            send = can_send
-        else:
-            del request_dic[req_id]
-            send = req
-        return send
+DEFAULT_NEIGH_FILE = "cache/neigh.pkl"
 
 
 class LbAlgorithm:
@@ -110,11 +37,21 @@ class LbAlgorithm:
         self.gamma = params.params_dict.get("gamma", [])
         self.alpha = params.params_dict.get("alpha", None)
 
+        self.parallel = LvpParallel()
+
         self.theta_hat = np.matrix([[agent.theta_hat] for agent in self.agents])
         self.sequence = []
         self.sequence_2 = []
 
-    def run(self, num_steps: int = 100, eps: int = 0.1, accelerate: bool = False):
+    def run(
+            self,
+            num_steps: int = 100,
+            eps: int = 0.1,
+            accelerate: bool = False,
+            generate_neigh: bool = True,
+            neigh_file: str = DEFAULT_NEIGH_FILE
+    ):
+        self.generate_new_neighbours(num_steps, generate_neigh, neigh_file)
         for step in range(num_steps):
             logging.info(f"\n\nStep: {step}")
             for agent in self.agents:
@@ -122,7 +59,7 @@ class LbAlgorithm:
                 logging.info(pd.DataFrame(df).sum())
 
             # Add some neighbour edges
-            self.choose_new_neighbours()
+            self.extract_new_neighbours(step)
 
             # Get new tasks
             [agent.update_with_new_tasks(step) for agent in self.agents]
@@ -156,24 +93,40 @@ class LbAlgorithm:
 
             self.sequence.append([agent.get_real_queue_length() for agent in self.agents])
             self.sequence_2.append([agent.theta_hat for agent in self.agents])
+
             print(f"Step {step} is completed")
 
-    def choose_new_neighbours(self) -> None:
+    def generate_new_neighbours(self, num_steps: int, generate_neigh: bool, neigh_file: str) -> None:
         """
-        Add additional neighbours connections
+        Generate neighbours for each step at start
+        :param num_steps: number of steps
+        :param generate_neigh: either to generate or to read from file
+        :param neigh_file: file to read from or to save to
         """
-        zeros = np.argwhere(self.adj_mat == 0)
-        add_zeros = [tuple(random.choice(zeros)) for _ in range(self.neib_add)]
-        self.b = self.adj_mat
+        if generate_neigh:
+            zeros = np.argwhere(self.adj_mat == 0)
+            add_zeros = [[tuple(random.choice(zeros)) for _ in range(self.neib_add)] for _ in range(num_steps)]
 
-        b_value = lambda i, j: self.add_neib_val if i != j and ((i, j) in add_zeros or (j, i) in add_zeros) else 0
-        self.b = self.b + [[b_value(i, j) for i in range(self.n)] for j in range(self.n)]
+            b_value = lambda i, j, step: \
+                self.add_neib_val if i != j and ((i, j) in add_zeros[step] or (j, i) in add_zeros[step]) else 0
+            self.adj_mat_by_step = \
+                {
+                    step: self.adj_mat + [
+                        [b_value(i, j, step) for i in range(self.n)] for j in range(self.n)
+                    ] for step in range(num_steps)
+                }
+            save_pickle(self.adj_mat_by_step, neigh_file)
+        else:
+            self.adj_mat_by_step = upload_pickle(neigh_file)
+
+    def extract_new_neighbours(self, step: int):
+        """
+        Extract information about neighbours according to the step
+        :param step:
+        :return:
+        """
+        self.b = self.adj_mat_by_step[step]
         self.D = np.diagflat(self.b.sum(axis=1))
-
-        # self.neibours = {ind: np.where(self.b[ind] > 0)[1] for ind in range(self.n)}
-        # for ind, neighb in self.neibours.items():
-        #     self.agents[ind].neighb = neighb
-
         for agent in self.agents:
             agent.neighb = np.where(self.b[agent.id] > 0)[1]
 
@@ -223,8 +176,7 @@ class LbAlgorithm:
 
             # response.extend(self.distribute_agents_tasks(agent, requests_dic, u_lvp[agent.id]))
 
-        mpp = LvpParallel(requests_dic)
-        response = mpp.run(args_list=params_list)
+        response = self.parallel.run(args_list=params_list, shared_vars=requests_dic)
 
         if not response:
             return {}
@@ -232,7 +184,7 @@ class LbAlgorithm:
         send_tasks = {}
         for agent_id, res in response.items():
             for send_to_id, num in res:
-                tasks = self.agents[agent_id].get_tasks(int(num))
+                tasks = self.agents[agent_id].tasks_to_send(int(num))
                 send_tasks.setdefault(send_to_id, []).extend(tasks)
 
         return send_tasks
@@ -246,18 +198,13 @@ class LbAlgorithm:
             self.agents[agent_id].receive_tasks(tasks)
 
 
-def safe_list_get(l, idx: int, default):
-    try:
-        return l[idx]
-    except IndexError:
-        return default
-
-
 if __name__ == "__main__":
+    generate = True
     logging.basicConfig(filename=f'cache/loggs/_loggs_lvp.log', filemode='w', level=logging.INFO)
     number_of_agents = 6
     productivity = 10
-    agents = [Agent(id, productivity, generate_tasks=False) for id in range(number_of_agents)]
+    num_steps = 20
+    agents = [Agent(id, productivity, generate=generate, num_steps=num_steps) for id in range(number_of_agents)]
 
     pars = Parameters()
     pars.n = number_of_agents
@@ -280,6 +227,6 @@ if __name__ == "__main__":
     }
 
     alg_lvp = LbAlgorithm(agents=agents, params=pars)
-    alg_lvp.run(num_steps=20, accelerate=False)
+    alg_lvp.run(num_steps=num_steps, accelerate=False, generate_neigh=generate)
     lvp_seq = alg_lvp.sequence
     logging.info("lvp_seq")

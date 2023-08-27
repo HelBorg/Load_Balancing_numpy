@@ -8,8 +8,6 @@ from multiprocessing import Manager, Pool, Lock, Value, cpu_count
 from multiprocessing.pool import ThreadPool
 from typing import Any, Iterator
 
-from lvp.objects import Agent
-
 LOG_LEVEL = "DEBUG"
 
 
@@ -121,10 +119,10 @@ class ParallelProcessing:
     def critical_section(self, *args, **kwargs):
         raise NotImplementedError("Process not defined ('NotImplementedError' exception).")
 
-    def get_shared_vars(self, manager: Manager) -> tuple:
+    def get_shared_vars(self, manager: Manager, shared_vars) -> tuple:
         return tuple()
 
-    def run(self, args_list: Iterator[tuple], use_multithreading: bool = False) -> dict:
+    def run(self, args_list: Iterator[tuple], use_multithreading: bool = False, shared_vars = None) -> dict:
         """
         Run processes in parallel.
 
@@ -140,7 +138,7 @@ class ParallelProcessing:
         resp_dict = manager.dict()
         self._queue = manager.Value('i', 0)
 
-        init_args = self.get_shared_vars(manager)
+        init_args = self.get_shared_vars(manager, shared_vars)
 
         pool = Pool(processes=self._n_jobs, initializer=self.init_child, initargs=(Lock(), ) + init_args) if not use_multithreading else ThreadPool(processes=self._n_jobs)
 
