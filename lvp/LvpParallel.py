@@ -7,10 +7,6 @@ from lvp.models.Agent import Agent
 
 
 class LvpParallel(ParallelProcessing):
-    # def __init__(self, request_dic, *args, **kwargs):
-    #     super().__init__(*args, **kwargs)
-    #     self.request_dic = request_dic
-
     def process(self, agent: Agent, requests_dic, get_tasks: int, step: int, response_dict: dict) -> None:
         """
         Agent distribute it's tasks among neibours

@@ -39,9 +39,9 @@ class Agent:
         self.avg_produc = produc
         self.prods = self.generate_or_upload(generate, produc_file, num_steps, self.generate_productivities)
 
-        self.tasks = self.get_new_tasks(0)
+        self.tasks = []
         self.theta_hat = len(self.tasks)
-        self.task_on_comp = self.tasks.pop(0) if len(self.tasks) > 0 else Task()
+        self.task_on_comp = Task()
 
         self.neighb = []
 

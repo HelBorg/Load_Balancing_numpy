@@ -59,7 +59,7 @@ class LbAlgorithm:
                 logging.info(pd.DataFrame(df).sum())
 
             # Add some neighbour edges
-            self.extract_new_neighbours(step)
+            self.extract_step_info(step)
 
             # Get new tasks
             [agent.update_with_new_tasks(step) for agent in self.agents]
@@ -119,16 +119,17 @@ class LbAlgorithm:
         else:
             self.adj_mat_by_step = upload_pickle(neigh_file)
 
-    def extract_new_neighbours(self, step: int):
+    def extract_step_info(self, step: int) -> None:
         """
-        Extract information about neighbours according to the step
+        Extract information about neighbours and productivity according to the step
         :param step:
-        :return:
         """
         self.b = self.adj_mat_by_step[step]
         self.D = np.diagflat(self.b.sum(axis=1))
         for agent in self.agents:
             agent.neighb = np.where(self.b[agent.id] > 0)[1]
+
+            agent.produc = agent.prods[step]
 
     def local_voting_protocol(self, x: np.array) -> np.array:
         """
@@ -199,7 +200,7 @@ class LbAlgorithm:
 
 
 if __name__ == "__main__":
-    generate = True
+    generate = False
     logging.basicConfig(filename=f'cache/loggs/_loggs_lvp.log', filemode='w', level=logging.INFO)
     number_of_agents = 6
     productivity = 10
