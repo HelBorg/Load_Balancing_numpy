@@ -10,8 +10,11 @@ from lvp.models.Agent import Agent
 from lvp.models.Parameters import Parameters
 from lvp.models.Task import Task
 from lvp.tools import save_pickle, upload_pickle
+import os
 
-DEFAULT_NEIGH_FILE = "cache/neigh.pkl"
+DEFAULT_CACHE_PATH = "cache/"
+DEFAULT_LOGGS_PATH = DEFAULT_CACHE_PATH + "logs/"
+DEFAULT_NEIGH_FILE = DEFAULT_CACHE_PATH + "neigh.pkl"
 
 
 class LbAlgorithm:
@@ -43,6 +46,11 @@ class LbAlgorithm:
         self.sequence = []
         self.sequence_2 = []
 
+        loggs_id = max(os.listdir(DEFAULT_LOGGS_PATH))
+        self.loggs_path = DEFAULT_LOGGS_PATH + f"{int(loggs_id) + 1}/"
+        os.mkdir(self.loggs_path)
+        logging.basicConfig(filename=f'{self.loggs_path}_loggs_lvp.log', filemode='w', level=logging.INFO, force=True)
+
     def run(
             self,
             num_steps: int = 100,
@@ -61,6 +69,9 @@ class LbAlgorithm:
             # Add some neighbour edges
             self.extract_step_info(step)
 
+            self.sequence.append([agent.get_real_queue_length() for agent in self.agents])
+            self.sequence_2.append([agent.theta_hat for agent in self.agents])
+
             # Get new tasks
             [agent.update_with_new_tasks(step) for agent in self.agents]
 
@@ -74,7 +85,7 @@ class LbAlgorithm:
             if not accelerate:
                 u_lvp = self.local_voting_protocol(self.theta_hat)
             else:
-                u_lvp = self.acc_local_voting_protocol()
+                u_lvp = self.acc_local_voting_protocol(self.theta_hat)
             u_lvp = (self.h * u_lvp).round()
             logging.info(f"Local voting protocol redistribution: {u_lvp}")
 
@@ -91,8 +102,6 @@ class LbAlgorithm:
                 agent.update_theta_hat()
                 logging.info(f"Agent {agent.id}: {agent.theta_hat}")
 
-            self.sequence.append([agent.get_real_queue_length() for agent in self.agents])
-            self.sequence_2.append([agent.theta_hat for agent in self.agents])
 
             print(f"Step {step} is completed")
 
@@ -103,8 +112,8 @@ class LbAlgorithm:
         :param generate_neigh: either to generate or to read from file
         :param neigh_file: file to read from or to save to
         """
+        zeros = [(i, j) for i, j in np.argwhere(self.adj_mat == 0) if i < j]
         if generate_neigh:
-            zeros = np.argwhere(self.adj_mat == 0)
             add_zeros = [[tuple(random.choice(zeros)) for _ in range(self.neib_add)] for _ in range(num_steps)]
 
             b_value = lambda i, j, step: \
@@ -127,7 +136,8 @@ class LbAlgorithm:
         self.b = self.adj_mat_by_step[step]
         self.D = np.diagflat(self.b.sum(axis=1))
         for agent in self.agents:
-            agent.neighb = np.where(self.b[agent.id] > 0)[1]
+            # print(np.where(self.b[agent.id] > 0))
+            agent.neighb = np.where(self.b[agent.id] > 0)[0]
 
             agent.produc = agent.prods[step]
 
@@ -140,15 +150,17 @@ class LbAlgorithm:
         lvp = (self.D - self.b) * x
         return np.squeeze(np.asarray(lvp))
 
-    def acc_local_voting_protocol(self) -> np.array:
+    def acc_local_voting_protocol(self, x: np.array) -> np.array:
         self.gamma = [self.gamma[-1]]
         self.gamma.append((1 - self.alpha) * self.gamma[0] + self.alpha * (self.mu - self.eta))
         x_n = 1 / (self.gamma[0] + self.alpha * (self.mu - self.eta)) \
-              * (self.alpha * self.gamma[0] * self.nesterov_step + self.gamma[1] * self.theta_hat)
+              * (self.alpha * self.gamma[0] * self.nesterov_step + self.gamma[1] * x)
 
-        y_n = self.local_voting_protocol(x_n)
+        x_to_lvp = np.tile(x, (1, 5)).astype(float)
+        np.fill_diagonal(x_to_lvp, x_n)
+        y_n = np.diag(self.local_voting_protocol(x_to_lvp))
+
         y_n_vec = np.matrix(y_n).transpose() if y_n.shape == (self.n,) else y_n
-
         self.nesterov_step = 1 / self.gamma[0] * \
                              ((1 - self.alpha) * self.gamma[0] * self.nesterov_step
                               + self.alpha * (self.mu - self.eta) * x_n
@@ -157,9 +169,10 @@ class LbAlgorithm:
         H = self.h - self.h * self.h * self.L / 2
         if H - self.alpha * self.alpha / (2 * self.gamma[1]) < 0:
             logging.warning(H)
+            print(f"H {H}")
             logging.exception(f"Oh no: {H - self.alpha * self.alpha / (2 * self.gamma[1])}")
-            logging.info("Exception")
-            raise BaseException()
+            print(f"Oh no: {H - self.alpha * self.alpha / (2 * self.gamma[1])}")
+            # raise BaseException()
 
         return y_n
 
@@ -173,9 +186,7 @@ class LbAlgorithm:
         resp_age = [a for a in self.agents if u_lvp[a.id] > 0]
         params_list = []
         for agent in resp_age:
-            params_list.append((agent, requests_dic, u_lvp[agent.id], step,))
-
-            # response.extend(self.distribute_agents_tasks(agent, requests_dic, u_lvp[agent.id]))
+            params_list.append((agent, requests_dic, u_lvp[agent.id], step, self.loggs_path,))
 
         response = self.parallel.run(args_list=params_list, shared_vars=requests_dic)
 
@@ -201,8 +212,7 @@ class LbAlgorithm:
 
 if __name__ == "__main__":
     generate = False
-    logging.basicConfig(filename=f'cache/loggs/_loggs_lvp.log', filemode='w', level=logging.INFO)
-    number_of_agents = 6
+    number_of_agents = 5
     productivity = 10
     num_steps = 20
     agents = [Agent(id, productivity, generate=generate, num_steps=num_steps) for id in range(number_of_agents)]
@@ -223,11 +233,12 @@ if __name__ == "__main__":
         "mu": 0.9,
         "h": 0.2,
         "eta": 0.8,
-        "gamma": [[0.07, 0.09, 0.11][2]],
+        "gamma": [[0.07, 0.09, 0.11][0]],
         "alpha": [0.07, 0.09, 0.11][1]
     }
 
     alg_lvp = LbAlgorithm(agents=agents, params=pars)
-    alg_lvp.run(num_steps=num_steps, accelerate=False, generate_neigh=generate)
+    alg_lvp.run(num_steps=1, accelerate=True, generate_neigh=generate)
     lvp_seq = alg_lvp.sequence
     logging.info("lvp_seq")
+

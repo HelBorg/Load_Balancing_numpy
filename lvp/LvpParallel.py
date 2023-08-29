@@ -7,7 +7,15 @@ from lvp.models.Agent import Agent
 
 
 class LvpParallel(ParallelProcessing):
-    def process(self, agent: Agent, requests_dic, get_tasks: int, step: int, response_dict: dict) -> None:
+    def process(
+            self,
+            agent: Agent,
+            requests_dic,
+            get_tasks: int,
+            step: int,
+            loggs_path: str,
+            response_dict: dict
+    ) -> None:
         """
         Agent distribute it's tasks among neibours
         :param agent:  agent instance
@@ -18,7 +26,7 @@ class LvpParallel(ParallelProcessing):
         agent_id = agent.id
         ag_tasks = len(agent.tasks)
 
-        logging.basicConfig(filename=f'cache/loggs/_loggs_{agent_id}.log', filemode='a', level=logging.INFO)
+        logging.basicConfig(filename=loggs_path + f'/_loggs_{agent_id}.log', filemode='a', force=True)
         logging.info(f"\n\nStep {step}")
 
         requests_neib = [ind for ind in requests_dic.keys() if ind in agent.neighb]

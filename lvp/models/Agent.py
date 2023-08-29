@@ -11,9 +11,9 @@ DEFAULT_PROD_FILE = DEFAULT_PATH_SAVE + "productivity_{id}.pkl"
 
 STEPS_LAM = 2
 COMPL_MEAN = 5
-COMPL_DISTR = 10
-SIZE_COEF = 20
-SIZE_BIAS = 20
+COMPL_DISTR = 5
+SIZE_COEF = 400
+SIZE_BIAS = 10
 PRODUC_DISTR = 5
 
 
@@ -45,19 +45,6 @@ class Agent:
 
         self.neighb = []
 
-    def update_theta_hat(self) -> None:
-        """
-        Update queue length
-        """
-        self.theta_hat = len(self.tasks)
-
-    def get_real_queue_length(self) -> float:
-        """
-        Count queue computing time
-        :return:
-        """
-        return sum([task.compl for task in self.tasks])
-
     def generate_or_upload(self, generate: bool, file: str, num_steps, function):
         return function(file, num_steps) if generate else upload_pickle(file)
 
@@ -67,11 +54,25 @@ class Agent:
         :param tasks_file: path to the file to save tasks to
         :return: list of entities Task
         """
-        size = np.random.poisson(lam=self.id * SIZE_COEF + SIZE_BIAS)
-        steps = np.random.poisson(lam=STEPS_LAM, size=size)
+        size = [53, 483, 1079, 1552, 2255][self.id]
+        # size = np.random.poisson(lam=1.5*coef[self.id])
+        # print(f"Agent {self.id} size {size}")
+
+        steps = np.random.randint(num_steps, size=20)
+        tasks = [Task(step, abs(np.random.normal(COMPL_MEAN, COMPL_DISTR))) for step in steps]
+
         compl = np.random.normal(COMPL_MEAN, COMPL_DISTR, size=size)
-        tasks = [Task(step, abs(comp)) for step, comp in zip(steps, compl)]
+        add = [Task(0, comp) for comp in compl]
+        tasks.extend(add)
         save_pickle(tasks, tasks_file)
+
+        # size = np.random.poisson(lam=50) + 1
+        # if self.id == 5:
+        #     size = 100
+        # tasks = [Task(np.random.randint(num_steps), np.random.poisson(10)) for _ in range(size)]
+        # add = [Task(0, np.random.poisson(lam=self.id * 10 + 1)) for _ in range(size)]
+        # tasks.extend(add)
+        # save_pickle(tasks, tasks_file)
         return tasks
 
     def generate_productivities(self, file: str, num_steps: int):
@@ -152,3 +153,16 @@ class Agent:
         :param tasks: list of tasks
         """
         self.tasks.extend(tasks)
+
+    def update_theta_hat(self) -> None:
+        """
+        Update queue length
+        """
+        self.theta_hat = len(self.tasks)
+
+    def get_real_queue_length(self) -> float:
+        """
+        Count queue computing time
+        :return:
+        """
+        return sum([task.compl for task in self.tasks])
