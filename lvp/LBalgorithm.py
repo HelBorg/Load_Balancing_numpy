@@ -1,16 +1,17 @@
 import logging
+import os
 import random
 from typing import Dict, List
 
 import numpy as np
 import pandas as pd
 
-from lvp.LvpParallel import LvpParallel
+from lvp.DistributeParallel import DistributeParallel
+from lvp.AlvpParallel import AlvpParallel
 from lvp.models.Agent import Agent
 from lvp.models.Parameters import Parameters
 from lvp.models.Task import Task
 from lvp.tools import save_pickle, upload_pickle
-import os
 
 DEFAULT_CACHE_PATH = "cache/"
 DEFAULT_LOGGS_PATH = DEFAULT_CACHE_PATH + "logs/"
@@ -40,13 +41,14 @@ class LbAlgorithm:
         self.gamma = params.params_dict.get("gamma", [])
         self.alpha = params.params_dict.get("alpha", None)
 
-        self.parallel = LvpParallel()
+        self.distr_parallel = DistributeParallel()
+        self.alvp_parallel = AlvpParallel(self.alpha, self.mu, self.eta, self.h, self.L)
 
         self.theta_hat = np.matrix([[agent.theta_hat] for agent in self.agents])
         self.sequence = []
         self.sequence_2 = []
 
-        loggs_id = max(os.listdir(DEFAULT_LOGGS_PATH))
+        loggs_id = max([int(i) for i in os.listdir(DEFAULT_LOGGS_PATH)])
         self.loggs_path = DEFAULT_LOGGS_PATH + f"{int(loggs_id) + 1}/"
         os.mkdir(self.loggs_path)
         logging.basicConfig(filename=f'{self.loggs_path}_loggs_lvp.log', filemode='w', level=logging.INFO, force=True)
@@ -69,11 +71,11 @@ class LbAlgorithm:
             # Add some neighbour edges
             self.extract_step_info(step)
 
-            self.sequence.append([agent.get_real_queue_length() for agent in self.agents])
-            self.sequence_2.append([agent.theta_hat for agent in self.agents])
-
             # Get new tasks
             [agent.update_with_new_tasks(step) for agent in self.agents]
+
+            self.sequence.append([agent.get_real_queue_length() for agent in self.agents])
+            self.sequence_2.append([agent.theta_hat for agent in self.agents])
 
             # Complete some tasks
             [agent.complete_tasks() for agent in self.agents]
@@ -84,9 +86,10 @@ class LbAlgorithm:
 
             if not accelerate:
                 u_lvp = self.local_voting_protocol(self.theta_hat)
+                u_lvp = (self.h * u_lvp).round()
             else:
                 u_lvp = self.acc_local_voting_protocol(self.theta_hat)
-            u_lvp = (self.h * u_lvp).round()
+                u_lvp = u_lvp.round()
             logging.info(f"Local voting protocol redistribution: {u_lvp}")
 
             requests_dic = {ind: u for ind, u in enumerate(u_lvp) if u < 0}
@@ -101,7 +104,6 @@ class LbAlgorithm:
             for agent in self.agents:
                 agent.update_theta_hat()
                 logging.info(f"Agent {agent.id}: {agent.theta_hat}")
-
 
             print(f"Step {step} is completed")
 
@@ -136,12 +138,11 @@ class LbAlgorithm:
         self.b = self.adj_mat_by_step[step]
         self.D = np.diagflat(self.b.sum(axis=1))
         for agent in self.agents:
-            # print(np.where(self.b[agent.id] > 0))
-            agent.neighb = np.where(self.b[agent.id] > 0)[0]
+            agent.neighb = np.where(self.b[agent.id] > 0)[-1]
 
             agent.produc = agent.prods[step]
 
-    def local_voting_protocol(self, x: np.array) -> np.array:
+    def local_voting_protocol(self, x) -> np.array:
         """
         Compute local voting protocol
         :param x: agents queue lengths
@@ -153,28 +154,18 @@ class LbAlgorithm:
     def acc_local_voting_protocol(self, x: np.array) -> np.array:
         self.gamma = [self.gamma[-1]]
         self.gamma.append((1 - self.alpha) * self.gamma[0] + self.alpha * (self.mu - self.eta))
-        x_n = 1 / (self.gamma[0] + self.alpha * (self.mu - self.eta)) \
-              * (self.alpha * self.gamma[0] * self.nesterov_step + self.gamma[1] * x)
 
-        x_to_lvp = np.tile(x, (1, 5)).astype(float)
-        np.fill_diagonal(x_to_lvp, x_n)
-        y_n = np.diag(self.local_voting_protocol(x_to_lvp))
+        params_list = []
+        for agent_id in range(self.n):
+            params_list.append(
+                (agent_id, x, self.nesterov_step.item((agent_id, 0)), self.gamma, self.D[agent_id], self.b[agent_id])
+            )
+        response = self.alvp_parallel.run(args_list=params_list)
 
-        y_n_vec = np.matrix(y_n).transpose() if y_n.shape == (self.n,) else y_n
-        self.nesterov_step = 1 / self.gamma[0] * \
-                             ((1 - self.alpha) * self.gamma[0] * self.nesterov_step
-                              + self.alpha * (self.mu - self.eta) * x_n
-                              - self.alpha * y_n_vec)
+        x_avg = np.matrix([response[key]["x_avg"] for key in range(self.n)]).transpose()
+        self.nesterov_step = np.matrix([response[key]["nesterov_step"] for key in range(self.n)]).transpose()
 
-        H = self.h - self.h * self.h * self.L / 2
-        if H - self.alpha * self.alpha / (2 * self.gamma[1]) < 0:
-            logging.warning(H)
-            print(f"H {H}")
-            logging.exception(f"Oh no: {H - self.alpha * self.alpha / (2 * self.gamma[1])}")
-            print(f"Oh no: {H - self.alpha * self.alpha / (2 * self.gamma[1])}")
-            # raise BaseException()
-
-        return y_n
+        return x - x_avg
 
     def distribute_tasks(self, requests_dic: Dict[int, int], u_lvp: np.array, step: int) -> Dict[int, List[Task]]:
         """
@@ -188,14 +179,35 @@ class LbAlgorithm:
         for agent in resp_age:
             params_list.append((agent, requests_dic, u_lvp[agent.id], step, self.loggs_path,))
 
-        response = self.parallel.run(args_list=params_list, shared_vars=requests_dic)
+        response = self.distr_parallel.run(args_list=params_list, shared_vars=requests_dic)
 
         if not response:
             return {}
 
         send_tasks = {}
-        for agent_id, res in response.items():
-            for send_to_id, num in res:
+        keys = requests_dic.keys()
+        response_inv = {
+            send_to: {
+                send_from: response[send_from][send_to]
+                for send_from in response if send_to in response[send_from]
+            } for send_to in keys
+        }
+
+        for send_to_id, res in response_inv.items():
+            if not res:
+                continue
+
+            sum_to_send = sum(res.values())
+            mx_num, add = -1, -1
+            if sum_to_send < abs(requests_dic[send_to_id]):
+                mx_num = max(res, key=res.get)
+                add = abs(requests_dic[send_to_id]) - sum_to_send
+
+            for agent_id, num in res.items():
+                if mx_num == agent_id:
+                    num = num + add
+                    logging.info(f"Agent {send_to_id} need {add} more getting from {mx_num}")
+                    mx_num, add = -1, -1
                 tasks = self.agents[agent_id].tasks_to_send(int(num))
                 send_tasks.setdefault(send_to_id, []).extend(tasks)
 
@@ -210,23 +222,26 @@ class LbAlgorithm:
             self.agents[agent_id].receive_tasks(tasks)
 
 
+def is_neib(i, j):
+    if i in [0, num_agents - 1] and i + j == num_agents - 1:
+        return 1
+    return 1 if abs(i - j) == 1 else 0
+
+
 if __name__ == "__main__":
     generate = False
-    number_of_agents = 5
+    num_agents = 20
     productivity = 10
     num_steps = 20
-    agents = [Agent(id, productivity, generate=generate, num_steps=num_steps) for id in range(number_of_agents)]
+    agents = [Agent(id, productivity, generate=generate, num_steps=num_steps) for id in range(num_agents)]
 
     pars = Parameters()
-    pars.n = number_of_agents
+    pars.n = num_agents
     pars.theta_hat = np.matrix([len(agent.tasks) for agent in agents]).transpose()
-    pars.b = np.matrix([[0, 0.3, 0.3, 0, 0, 0],
-                        [0.3, 0, 0, 0, 0, 0.3],
-                        [0.3, 0, 0, 0.3, 0, 0],
-                        [0, 0, 0.3, 0, 0.3, 0],
-                        [0, 0, 0, 0.3, 0, 0.3],
-                        [0, 0.3, 0, 0, 0.3, 0]])
-    pars.neib_add = 3
+    Adj = np.matrix([[is_neib(i, j) for i in range(num_agents)] for j in range(num_agents)])
+    pars.b = Adj / 2
+
+    pars.neib_add = 0
     pars.add_neib_val = 0.3
     pars.params_dict = {
         "L": 7.1,
@@ -238,7 +253,22 @@ if __name__ == "__main__":
     }
 
     alg_lvp = LbAlgorithm(agents=agents, params=pars)
-    alg_lvp.run(num_steps=1, accelerate=True, generate_neigh=generate)
+    alg_lvp.run(num_steps=20, accelerate=True, generate_neigh=generate)
     lvp_seq = alg_lvp.sequence
     logging.info("lvp_seq")
 
+    # alg_lvp.theta_hat = np.matrix([[44], [715], [912], [1304], [2442]])
+    # alg_lvp.nesterov_step = np.array([[0], [0], [0], [0], [0]])
+    # alg_lvp.b = np.matrix([
+    #     [0, 0, 1, 1, 0],
+    #     [0, 0, 0, 1, 1],
+    #     [1, 0, 0, 0, 1],
+    #     [1, 1, 0, 0, 0],
+    #     [0, 1, 1, 0, 0]
+    # ]) / 2
+    # alg_lvp.D = np.diagflat(alg_lvp.b.sum(axis=1))
+    # alg_lvp.acc_local_voting_protocol(alg_lvp.theta_hat)
+    # print(alg_lvp.gamma)
+    #
+    # alg_lvp.theta_hat = np.matrix([[80], [586], [1195], [1608], [2105]])
+    # alg_lvp.local_voting_protocol(alg_lvp.theta_hat)

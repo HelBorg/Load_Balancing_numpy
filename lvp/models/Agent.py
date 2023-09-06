@@ -10,7 +10,7 @@ DEFAULT_TASKS_FILE = DEFAULT_PATH_SAVE + "tasks_{id}.pkl"
 DEFAULT_PROD_FILE = DEFAULT_PATH_SAVE + "productivity_{id}.pkl"
 
 STEPS_LAM = 2
-COMPL_MEAN = 5
+COMPL_MEAN = 10
 COMPL_DISTR = 5
 SIZE_COEF = 400
 SIZE_BIAS = 10
@@ -54,25 +54,14 @@ class Agent:
         :param tasks_file: path to the file to save tasks to
         :return: list of entities Task
         """
-        size = [53, 483, 1079, 1552, 2255][self.id]
-        # size = np.random.poisson(lam=1.5*coef[self.id])
-        # print(f"Agent {self.id} size {size}")
-
-        steps = np.random.randint(num_steps, size=20)
+        size = np.random.poisson(lam=self.id * SIZE_COEF + SIZE_BIAS)
+        steps = np.random.randint(num_steps, size=size//3)
         tasks = [Task(step, abs(np.random.normal(COMPL_MEAN, COMPL_DISTR))) for step in steps]
 
         compl = np.random.normal(COMPL_MEAN, COMPL_DISTR, size=size)
         add = [Task(0, comp) for comp in compl]
         tasks.extend(add)
         save_pickle(tasks, tasks_file)
-
-        # size = np.random.poisson(lam=50) + 1
-        # if self.id == 5:
-        #     size = 100
-        # tasks = [Task(np.random.randint(num_steps), np.random.poisson(10)) for _ in range(size)]
-        # add = [Task(0, np.random.poisson(lam=self.id * 10 + 1)) for _ in range(size)]
-        # tasks.extend(add)
-        # save_pickle(tasks, tasks_file)
         return tasks
 
     def generate_productivities(self, file: str, num_steps: int):

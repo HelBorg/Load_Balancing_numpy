@@ -23,7 +23,6 @@ def get_logger(name: str = __name__, level: str = LOG_LEVEL) -> Logger:
     )
 
     logger = logging.getLogger(name)
-    # coloredlogs.install(level=level, logger=logger, isatty=True)
 
     return logger
 
@@ -138,9 +137,12 @@ class ParallelProcessing:
         resp_dict = manager.dict()
         self._queue = manager.Value('i', 0)
 
-        init_args = self.get_shared_vars(manager, shared_vars)
+        if shared_vars:
+            init_args = (Lock(), ) + self.get_shared_vars(manager, shared_vars)
+        else:
+            init_args = (Lock(), )
 
-        pool = Pool(processes=self._n_jobs, initializer=self.init_child, initargs=(Lock(), ) + init_args) if not use_multithreading else ThreadPool(processes=self._n_jobs)
+        pool = Pool(processes=self._n_jobs, initializer=self.init_child, initargs=init_args) if not use_multithreading else ThreadPool(processes=self._n_jobs)
 
         start_time = datetime.now()
 
