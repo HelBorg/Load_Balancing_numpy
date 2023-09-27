@@ -8,6 +8,8 @@ from multiprocessing import Manager, Pool, Lock, Value, cpu_count
 from multiprocessing.pool import ThreadPool
 from typing import Any, Iterator
 
+import numpy as np
+
 LOG_LEVEL = "DEBUG"
 
 

@@ -2,7 +2,7 @@ import logging
 from multiprocessing import Lock, Manager
 from typing import Dict
 
-from lvp.MainParallel import ParallelProcessing
+from lvp.jobs.MainParallel import ParallelProcessing
 from lvp.models.Agent import Agent
 
 

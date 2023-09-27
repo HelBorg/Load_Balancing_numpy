@@ -5,14 +5,14 @@ import numpy as np
 from lvp.models.Task import Task
 from lvp.tools import upload_pickle, save_pickle
 
-DEFAULT_PATH_SAVE = "cache/"
+DEFAULT_PATH_SAVE = "cache/alg_params/"
 DEFAULT_TASKS_FILE = DEFAULT_PATH_SAVE + "tasks_{id}.pkl"
 DEFAULT_PROD_FILE = DEFAULT_PATH_SAVE + "productivity_{id}.pkl"
 
 STEPS_LAM = 2
-COMPL_MEAN = 10
-COMPL_DISTR = 5
-SIZE_COEF = 400
+COMPL_MEAN = 5
+COMPL_DISTR = 10
+SIZE_COEF = 800
 SIZE_BIAS = 10
 PRODUC_DISTR = 5
 
@@ -55,7 +55,7 @@ class Agent:
         :return: list of entities Task
         """
         size = np.random.poisson(lam=self.id * SIZE_COEF + SIZE_BIAS)
-        steps = np.random.randint(num_steps, size=size//3)
+        steps = np.random.randint(num_steps, size=size//20)
         tasks = [Task(step, abs(np.random.normal(COMPL_MEAN, COMPL_DISTR))) for step in steps]
 
         compl = np.random.normal(COMPL_MEAN, COMPL_DISTR, size=size)

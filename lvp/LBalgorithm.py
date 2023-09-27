@@ -6,8 +6,9 @@ from typing import Dict, List
 import numpy as np
 import pandas as pd
 
-from lvp.DistributeParallel import DistributeParallel
-from lvp.AlvpParallel import AlvpParallel
+from lvp.jobs.AlvpParallel import AlvpParallel
+from lvp.jobs.DistributeParallel import DistributeParallel
+from lvp.jobs.LvpParallel import LvpParallel
 from lvp.models.Agent import Agent
 from lvp.models.Parameters import Parameters
 from lvp.models.Task import Task
@@ -15,7 +16,11 @@ from lvp.tools import save_pickle, upload_pickle
 
 DEFAULT_CACHE_PATH = "cache/"
 DEFAULT_LOGGS_PATH = DEFAULT_CACHE_PATH + "logs/"
-DEFAULT_NEIGH_FILE = DEFAULT_CACHE_PATH + "neigh.pkl"
+DEFAULT_NEIGH_FILE = DEFAULT_CACHE_PATH + "alg_params/neigh.pkl"
+DEFAULT_NOISE_FILE = DEFAULT_CACHE_PATH + "alg_params/noise.pkl"
+
+NOISE_AVG = 0
+NOISE_DISTR = 10
 
 
 class LbAlgorithm:
@@ -43,12 +48,13 @@ class LbAlgorithm:
 
         self.distr_parallel = DistributeParallel()
         self.alvp_parallel = AlvpParallel(self.alpha, self.mu, self.eta, self.h, self.L)
+        self.lvp_parallel = LvpParallel(self.h)
 
         self.theta_hat = np.matrix([[agent.theta_hat] for agent in self.agents])
         self.sequence = []
         self.sequence_2 = []
 
-        loggs_id = max([int(i) for i in os.listdir(DEFAULT_LOGGS_PATH)])
+        loggs_id = max([int(i) for i in os.listdir(DEFAULT_LOGGS_PATH) if i.isdigit()] + [-1])
         self.loggs_path = DEFAULT_LOGGS_PATH + f"{int(loggs_id) + 1}/"
         os.mkdir(self.loggs_path)
         logging.basicConfig(filename=f'{self.loggs_path}_loggs_lvp.log', filemode='w', level=logging.INFO, force=True)
@@ -58,10 +64,11 @@ class LbAlgorithm:
             num_steps: int = 100,
             eps: int = 0.1,
             accelerate: bool = False,
-            generate_neigh: bool = True,
+            generate: bool = True,
             neigh_file: str = DEFAULT_NEIGH_FILE
     ):
-        self.generate_new_neighbours(num_steps, generate_neigh, neigh_file)
+        self.generate_new_neighbours(num_steps, generate, neigh_file)
+        self.generate_noise(num_steps, generate)
         for step in range(num_steps):
             logging.info(f"\n\nStep: {step}")
             for agent in self.agents:
@@ -85,10 +92,10 @@ class LbAlgorithm:
             logging.info(f"Current distribution on {step} step: {self.theta_hat}")
 
             if not accelerate:
-                u_lvp = self.local_voting_protocol(self.theta_hat)
+                u_lvp = self.local_voting_protocol(self.theta_hat, step)
                 u_lvp = (self.h * u_lvp).round()
             else:
-                u_lvp = self.acc_local_voting_protocol(self.theta_hat)
+                u_lvp = self.acc_local_voting_protocol(self.theta_hat, step)
                 u_lvp = u_lvp.round()
             logging.info(f"Local voting protocol redistribution: {u_lvp}")
 
@@ -130,6 +137,21 @@ class LbAlgorithm:
         else:
             self.adj_mat_by_step = upload_pickle(neigh_file)
 
+    def generate_noise(self, num_steps: int, generate: bool, noise_file: str = DEFAULT_NOISE_FILE):
+        if generate:
+            non_zeros = np.array([[i, j] for i, j in np.argwhere(self.adj_mat != 0)])
+            values_num = len(non_zeros)
+
+            noises_mat = np.zeros((num_steps, self.n, self.n), int)
+            for step in range(num_steps):
+                noises = np.random.normal(NOISE_AVG, NOISE_DISTR, size=values_num)
+                noises_mat[[step] * values_num, non_zeros[:, 0], non_zeros[:, 1]] = noises
+
+            save_pickle(noises_mat, noise_file)
+        else:
+            noises_mat = upload_pickle(noise_file)
+        self.noise_mat = noises_mat
+
     def extract_step_info(self, step: int) -> None:
         """
         Extract information about neighbours and productivity according to the step
@@ -142,30 +164,47 @@ class LbAlgorithm:
 
             agent.produc = agent.prods[step]
 
-    def local_voting_protocol(self, x) -> np.array:
+    def local_voting_protocol(self, x, step) -> np.array:
         """
         Compute local voting protocol
         :param x: agents queue lengths
         :return: lvp result
         """
-        lvp = (self.D - self.b) * x
-        return np.squeeze(np.asarray(lvp))
+        params_list = []
+        for agent_id in range(self.n):
+            params_list.append(
+                (
+                    agent_id,
+                    (x.T + self.noise_mat[step, agent_id]).T,
+                    self.D[agent_id],
+                    self.b[agent_id],
+                    self.loggs_path,
+                )
+            )
+        response = self.lvp_parallel.run(args_list=params_list)
+        return LvpParallel.extract_response_to_array(response, range(self.n))
 
-    def acc_local_voting_protocol(self, x: np.array) -> np.array:
+    def acc_local_voting_protocol(self, x: np.array, step) -> np.array:
         self.gamma = [self.gamma[-1]]
         self.gamma.append((1 - self.alpha) * self.gamma[0] + self.alpha * (self.mu - self.eta))
 
         params_list = []
         for agent_id in range(self.n):
             params_list.append(
-                (agent_id, x, self.nesterov_step.item((agent_id, 0)), self.gamma, self.D[agent_id], self.b[agent_id])
+                (
+                    agent_id,
+                    (x.T + self.noise_mat[step, agent_id]).T,
+                    self.nesterov_step.item((agent_id, 0)),
+                    self.gamma,
+                    self.D[agent_id],
+                    self.b[agent_id],
+                    self.loggs_path,)
             )
         response = self.alvp_parallel.run(args_list=params_list)
 
-        x_avg = np.matrix([response[key]["x_avg"] for key in range(self.n)]).transpose()
-        self.nesterov_step = np.matrix([response[key]["nesterov_step"] for key in range(self.n)]).transpose()
+        self.nesterov_step = AlvpParallel.extract_response_to_array(response, "nesterov_step", range(self.n))
 
-        return x - x_avg
+        return AlvpParallel.extract_response_to_array(response, "x", range(self.n))
 
     def distribute_tasks(self, requests_dic: Dict[int, int], u_lvp: np.array, step: int) -> Dict[int, List[Task]]:
         """
@@ -229,7 +268,7 @@ def is_neib(i, j):
 
 
 if __name__ == "__main__":
-    generate = False
+    generate = True
     num_agents = 20
     productivity = 10
     num_steps = 20
@@ -253,7 +292,7 @@ if __name__ == "__main__":
     }
 
     alg_lvp = LbAlgorithm(agents=agents, params=pars)
-    alg_lvp.run(num_steps=20, accelerate=True, generate_neigh=generate)
+    alg_lvp.run(num_steps=20, accelerate=False, generate=generate)
     lvp_seq = alg_lvp.sequence
     logging.info("lvp_seq")
 

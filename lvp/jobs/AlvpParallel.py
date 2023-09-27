@@ -1,11 +1,8 @@
 import logging
-from multiprocessing import Lock, Manager
-from typing import Dict
 
 import numpy as np
 
-from lvp.MainParallel import ParallelProcessing
-from lvp.models.Agent import Agent
+from lvp.jobs.MainParallel import ParallelProcessing
 
 
 class AlvpParallel(ParallelProcessing):
@@ -34,13 +31,15 @@ class AlvpParallel(ParallelProcessing):
             gamma: list,
             D,
             b,
+            loggs_path: str,
             response_dict: dict
     ) -> None:
         """
         """
         logging.basicConfig(filename=loggs_path + f'/_loggs_{agent_id}_alvp.log', filemode='a', level=logging.INFO)
+        x_agent = x.item((agent_id, 0))
         x_n = 1 / (gamma[0] + self.alpha * (self.mu - self.eta)) \
-              * (self.alpha * gamma[0] * nesterov_step + gamma[1] * x.item((agent_id, 0)))
+              * (self.alpha * gamma[0] * nesterov_step + gamma[1] * x_agent)
 
         # Create matrix with repeating x and x_n on main diagonal
         x = x.astype(float)
@@ -65,10 +64,12 @@ class AlvpParallel(ParallelProcessing):
             raise BaseException()
 
         response_dict[agent_id] = {
-            "x_avg": x_avg,
+            "x": x_agent - x_avg,
             "nesterov_step": nesterov_step
         }
 
         logging.info(f"Agent {agent_id} ended counting lvp")
 
-
+    @classmethod
+    def extract_response_to_array(self, response, parameter, keys):
+        return np.matrix([response[key][parameter] for key in keys]).transpose()
