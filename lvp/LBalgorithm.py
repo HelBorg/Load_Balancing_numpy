@@ -8,7 +8,6 @@ import pandas as pd
 
 from lvp.jobs.AlvpParallel import AlvpParallel
 from lvp.jobs.DistributeParallel import DistributeParallel
-from lvp.jobs.LvpParallel import LvpParallel
 from lvp.models.Agent import Agent
 from lvp.models.Parameters import Parameters
 from lvp.models.Task import Task
@@ -49,7 +48,6 @@ class LbAlgorithm:
         # Technical variables
         self.distr_parallel = DistributeParallel()
         self.alvp_parallel = AlvpParallel(self.alpha, self.mu, self.eta, self.h, self.L)
-        self.lvp_parallel = LvpParallel(self.h)
 
         # Resuts
         self.theta_hat = np.matrix([[agent.theta_hat] for agent in self.agents])
@@ -175,19 +173,11 @@ class LbAlgorithm:
         :param x: agents queue lengths
         :return: lvp result
         """
-        params_list = []
-        for agent_id in range(self.n):
-            params_list.append(
-                (
-                    agent_id,
-                    (x.T + self.noise_mat[step, agent_id]).T,
-                    self.D[agent_id],
-                    self.b[agent_id],
-                    self.loggs_path,
-                )
-            )
-        response = self.lvp_parallel.run(args_list=params_list)
-        return LvpParallel.extract_response_to_array(response, range(self.n))
+        lvp = [[self.lvp_step((x.T + self.noise_mat[step, agent_id]).T, agent_id)] for agent_id in range(self.n)]
+        return np.matrix(lvp)
+
+    def lvp_step(self, x, agent_id):
+        return ((self.D[agent_id] - self.b[agent_id]) * x).item(0)
 
     def acc_local_voting_protocol(self, x: np.array, step) -> np.array:
         self.gamma = [self.gamma[-1]]
