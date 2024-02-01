@@ -2,7 +2,7 @@ import logging
 
 import numpy as np
 
-from lvp.jobs.MainParallel import ParallelProcessing
+from lvp.jobs.main_parallel import ParallelProcessing
 
 
 class AlvpParallel(ParallelProcessing):

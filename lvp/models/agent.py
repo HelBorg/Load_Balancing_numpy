@@ -2,7 +2,7 @@ from typing import List
 
 import numpy as np
 
-from lvp.models.Task import Task
+from lvp.models.task import Task
 from lvp.tools import upload_pickle, save_pickle
 
 DEFAULT_PATH_SAVE = "cache/alg_params/"

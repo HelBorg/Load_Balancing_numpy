@@ -2,8 +2,8 @@ import logging
 from multiprocessing import Lock, Manager
 from typing import Dict
 
-from lvp.jobs.MainParallel import ParallelProcessing
-from lvp.models.Agent import Agent
+from lvp.jobs.main_parallel import ParallelProcessing
+from lvp.models.agent import Agent
 
 
 class DistributeParallel(ParallelProcessing):

@@ -1,16 +1,15 @@
 import logging
-import os
 import random
 from typing import Dict, List
 
 import numpy as np
 import pandas as pd
 
-from lvp.jobs.AlvpParallel import AlvpParallel
-from lvp.jobs.DistributeParallel import DistributeParallel
-from lvp.models.Agent import Agent
-from lvp.models.Parameters import Parameters
-from lvp.models.Task import Task
+
+from lvp.jobs.distribute_parallel import DistributeParallel
+from lvp.models.agent import Agent
+from lvp.models.parameters import Parameters
+from lvp.models.task import Task
 from lvp.tools import save_pickle, upload_pickle
 
 DEFAULT_CACHE_PATH = "cache/"
