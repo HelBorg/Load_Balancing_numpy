@@ -32,8 +32,8 @@ class LbAlgorithm:
         self.n = params.n
         self.agents = agents
         self.adj_mat = params.b
-        self.neib_add = params.neib_add
-        self.add_neib_val = params.add_neib_val
+        self.neib_add = params.neib_add  # number of added edges at each step
+        self.add_neib_val = params.add_neib_val  # value for added edges
 
         # Algorithm parameter
         self.h = params.params_dict.get("h", None)
@@ -46,14 +46,17 @@ class LbAlgorithm:
         self.gamma = params.params_dict.get("gamma", [])
         self.alpha = params.params_dict.get("alpha", None)
 
+        # Technical variables
         self.distr_parallel = DistributeParallel()
         self.alvp_parallel = AlvpParallel(self.alpha, self.mu, self.eta, self.h, self.L)
         self.lvp_parallel = LvpParallel(self.h)
 
+        # Resuts
         self.theta_hat = np.matrix([[agent.theta_hat] for agent in self.agents])
         self.sequence = []
         self.sequence_2 = []
 
+        # Set up logging
         loggs_id = max([int(i) for i in os.listdir(DEFAULT_LOGGS_PATH) if i.isdigit()] + [-1])
         self.loggs_path = DEFAULT_LOGGS_PATH + f"{int(loggs_id) + 1}/"
         os.mkdir(self.loggs_path)
@@ -69,6 +72,7 @@ class LbAlgorithm:
     ):
         self.generate_new_neighbours(num_steps, generate, neigh_file)
         self.generate_noise(num_steps, generate)
+
         for step in range(num_steps):
             logging.info(f"\n\nStep: {step}")
             for agent in self.agents:
@@ -117,6 +121,7 @@ class LbAlgorithm:
     def generate_new_neighbours(self, num_steps: int, generate_neigh: bool, neigh_file: str) -> None:
         """
         Generate neighbours for each step at start
+        For each step choice randomly int(self.neib_add) edges and add them to matrices
         :param num_steps: number of steps
         :param generate_neigh: either to generate or to read from file
         :param neigh_file: file to read from or to save to
@@ -280,7 +285,7 @@ if __name__ == "__main__":
     Adj = np.matrix([[is_neib(i, j) for i in range(num_agents)] for j in range(num_agents)])
     pars.b = Adj / 2
 
-    pars.neib_add = 0
+    pars.neib_add = 5
     pars.add_neib_val = 0.3
     pars.params_dict = {
         "L": 7.1,
