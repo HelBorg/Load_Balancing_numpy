@@ -1,12 +1,13 @@
+import os
 from typing import List
 
 import numpy as np
 
 from lvp.models.task import Task
+from lvp.models.task_pool import TaskPool
 from lvp.tools import upload_pickle, save_pickle
 
-DEFAULT_PATH_SAVE = "cache/alg_params/"
-DEFAULT_TASKS_FILE = DEFAULT_PATH_SAVE + "tasks_{id}.pkl"
+DEFAULT_PATH_SAVE = "/cache/alg_params/"
 DEFAULT_PROD_FILE = DEFAULT_PATH_SAVE + "productivity_{id}.pkl"
 
 STEPS_LAM = 2
@@ -22,22 +23,21 @@ class Agent:
             self,
             id: int,
             produc: float,
-            generate: bool = True,
             num_steps: int = None,
-            tasks_file_raw=DEFAULT_TASKS_FILE,
+            generate: bool = True,
+            task_pool: TaskPool = None,
             prods_file_raw=DEFAULT_PROD_FILE
     ):
         self.id = id
 
-        # Generate or upload tasks for each step of the experiment
-        tasks_file = tasks_file_raw.format(id=self.id)
-        self.all_tasks = self.generate_or_upload(generate, tasks_file, num_steps, self.generate_tasks)
+        # Tasks
+        self.all_tasks = task_pool.tasks.get(self.id, [])
         self.all_tasks.sort(key=lambda x: x.step)
 
-        # Generate or upload productivities for each step of the experiment
+        # Productivity
         produc_file = prods_file_raw.format(id=self.id)
         self.avg_produc = produc
-        self.prods = self.generate_or_upload(generate, produc_file, num_steps, self.generate_productivities)
+        self.prods = self.generate_or_upload(self.generate_productivities, generate, produc_file, num_steps=num_steps)
 
         self.tasks = []
         self.theta_hat = len(self.tasks)
@@ -45,31 +45,18 @@ class Agent:
 
         self.neighb = []
 
-    def generate_or_upload(self, generate: bool, file: str, num_steps, function):
-        return function(file, num_steps) if generate else upload_pickle(file)
-
-    def generate_tasks(self, tasks_file: str, num_steps: int) -> list:
-        """
-        Generate all_tasks
-        :param tasks_file: path to the file to save tasks to
-        :return: list of entities Task
-        """
-        size = np.random.poisson(lam=self.id * SIZE_COEF + SIZE_BIAS)
-        steps = np.random.randint(num_steps, size=size//20)
-        tasks = [Task(step, abs(np.random.normal(COMPL_MEAN, COMPL_DISTR))) for step in steps]
-
-        compl = np.random.normal(COMPL_MEAN, COMPL_DISTR, size=size)
-        add = [Task(0, comp) for comp in compl]
-        tasks.extend(add)
-        save_pickle(tasks, tasks_file)
-        return tasks
+    @staticmethod
+    def generate_or_upload(function, generate: bool, file: str, **kwargs) -> list:
+        return function(file, **kwargs) if generate else upload_pickle(file)
 
     def generate_productivities(self, file: str, num_steps: int):
         """
         Generate productivities for each step of the experiment
-        :param file: file to save to after generation
-        :param num_steps: number of steps to generate to
-        :return: productivities for each step
+
+        Parameters
+        ----------
+        file: to save to after generation
+        num_steps: number of steps to generate
         """
         producs = np.random.normal(self.avg_produc, PRODUC_DISTR, size=num_steps)
         save_pickle(producs, file)
@@ -78,8 +65,6 @@ class Agent:
     def update_with_new_tasks(self, step: int) -> None:
         """
         Append new tasks that appear at step
-        :param step:
-        :return:
         """
         new_tasks = self.get_new_tasks(step)
         self.tasks.extend(new_tasks)
@@ -88,8 +73,9 @@ class Agent:
     def get_new_tasks(self, step: int) -> List[Task]:
         """
         Return tasks that appear on step (self.all_tasks should be sorted by step)
-        :param step: the step at which appear new tasks
-        :return: list of tasks that should appear on step step
+
+        Parameters
+        step: the step at which appear new tasks
         """
         res = []
         ind = 0
