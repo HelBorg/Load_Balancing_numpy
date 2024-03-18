@@ -180,6 +180,10 @@ class LocalVotingProtocol(LbAlgorithm):
                     num = num + add
                     logging.info(f"Agent {send_to_id} need {add} more getting from {mx_num}")
                     mx_num, add = -1, -1
+
+                if num == 0:
+                    continue
+
                 tasks = self.agents[agent_id].tasks_to_send(int(num))
                 send_tasks.setdefault(send_to_id, []).extend(tasks)
 

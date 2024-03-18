@@ -8,10 +8,10 @@ DEFAULT_DISTR_TASKS_FILE = DEFAULT_PATH_SAVE + "tasks_distribution_{distribution
 DEFAULT_ALL_TASKS_FILE = DEFAULT_PATH_SAVE + "tasks.pkl"
 
 STEPS_LAM = 2
-COMPL_MEAN = 500
-COMPL_DISTR = 500
-SIZE_COEF = 40
-SIZE_BIAS = 10
+COMPL_MEAN = 5
+COMPL_DISTR = 5
+SIZE_COEF = 100
+SIZE_BIAS = 100
 
 UNIFORM = "UNIFORM"
 POISSON = "POISSON"
@@ -47,20 +47,20 @@ class TaskPool:
 
         # get distribution
         tasks_distr_file = tasks_distr_raw.format(distribution=distribution)
-        if not distribute:
-            self.tasks = upload_pickle(tasks_distr_file)
-
-        else:
+        if distribute:
             tasks = self.distribute_initial(all_tasks, num_agents)
             getattr(self, DISTR_METHODS.get(distribution))(tasks, all_tasks, num_agents)
             save_pickle(self.tasks, tasks_distr_file)
+
+        else:
+            self.tasks = upload_pickle(tasks_distr_file)
 
     def generate_tasks(self, num_agents, num_steps) -> dict:
         """
         Generate random number of tasks
         Returns dictionary of tasks by step
         """
-        size = np.random.poisson(lam=SIZE_COEF * num_agents ** 2 / 2 + num_agents * SIZE_BIAS)  # todo: change
+        size = np.random.poisson(lam=SIZE_COEF * num_agents * 5 / 2 + num_agents * SIZE_BIAS)  # todo: change
         steps = np.random.randint(num_steps, size=size // 20)
         tasks = {step: [] for step in range(num_steps)}
         for step in steps:
@@ -77,7 +77,10 @@ class TaskPool:
         del all_tasks[0]
         return {agent_id: self.assign_tasks_to_agent(agent_id, initial_tasks) for agent_id in range(num_agents)}
 
-    def assign_tasks_to_agent(self, agent_id, initial_tasks, assigned_tasks={}):
+    def assign_tasks_to_agent(self, agent_id, initial_tasks, assigned_tasks=None):
+        if assigned_tasks is None:
+            assigned_tasks = dict()
+
         size = np.random.poisson(lam=SIZE_COEF * agent_id + SIZE_BIAS)
         inds = np.random.randint(len(initial_tasks), size=min(size, len(initial_tasks)))
         return [initial_tasks.pop(min(ind, len(initial_tasks) - 1)) for ind in inds] + assigned_tasks.get(agent_id, [])

@@ -47,21 +47,19 @@ class AlvpParallel(ParallelProcessing):
         y = (D - b) * x
         y_vec = y.item((0, 0))
 
-        nesterov_step = 1 / gamma[0] * \
-                             ((1 - self.alpha) * gamma[0] * nesterov_step
-                              + self.alpha * (self.mu - self.eta) * x_n
-                              - self.alpha * y_vec)
+        nesterov_step = 1 / gamma[0] * (
+                (1 - self.alpha) * gamma[0] * nesterov_step
+                + self.alpha * (self.mu - self.eta) * x_n
+                - self.alpha * y_vec
+        )
 
         x_avg = x_n - self.h * y_vec
 
         H = self.h - self.h * self.h * self.L / 2
 
         if H - self.alpha * self.alpha / (2 * gamma[1]) < 0:
-            logging.warning(H)
-            print(f"H {H}")
             logging.exception(f"Oh no: {H - self.alpha * self.alpha / (2 * gamma[1])}")
-            print(f"Oh no: {H - self.alpha * self.alpha / (2 * gamma[1])}")
-            raise BaseException()
+            raise Exception(f"Oh no: {H - self.alpha * self.alpha / (2 * gamma[1])}")
 
         response_dict[agent_id] = {
             "x": x_agent - x_avg,

@@ -1,4 +1,3 @@
-import os
 from typing import List
 
 import numpy as np
@@ -10,11 +9,6 @@ from lvp.tools import upload_pickle, save_pickle
 DEFAULT_PATH_SAVE = "/cache/alg_params/"
 DEFAULT_PROD_FILE = DEFAULT_PATH_SAVE + "productivity_{id}.pkl"
 
-STEPS_LAM = 2
-COMPL_MEAN = 5
-COMPL_DISTR = 10
-SIZE_COEF = 800
-SIZE_BIAS = 10
 PRODUC_DISTR = 5
 
 
@@ -99,9 +93,6 @@ class Agent:
             self.task_on_comp = self.tasks.pop(0) if self.tasks else Task()
         else:
             self.task_on_comp.compl -= to_complete
-            to_complete = 0
-
-        if not to_complete:
             self.update_theta_hat()
             return
 
@@ -122,7 +113,7 @@ class Agent:
         :param number: number of tasks to return
         :return: list of tasks
         """
-        res, self.tasks = self.tasks[:number], self.tasks[number:]
+        self.tasks, res = self.tasks[:-number], self.tasks[-number:]
         return res
 
     def receive_tasks(self, tasks: List[Task]) -> None:
