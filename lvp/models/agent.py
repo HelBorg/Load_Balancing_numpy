@@ -85,7 +85,7 @@ class Agent:
             ind += 1
         return res
 
-    def complete_tasks(self) -> None:
+    def complete_tasks(self, step) -> None:
         """
         Complete tasks with taking into account productivity
         """
@@ -95,6 +95,7 @@ class Agent:
         task_compl = self.task_on_comp.compl
         if to_complete > task_compl:
             to_complete -= task_compl
+            self.task_on_comp.completed_step = step
             self.task_on_comp = self.tasks.pop(0) if self.tasks else Task()
         else:
             self.task_on_comp.compl -= to_complete
@@ -107,6 +108,8 @@ class Agent:
         # Complete other tasks
         while self.task_on_comp.compl and to_complete - self.task_on_comp.compl > 0:
             to_complete -= self.task_on_comp.compl
+            self.task_on_comp.completed_step = step
+
             self.task_on_comp = self.tasks.pop(0) if len(self.tasks) > 0 else Task()
 
         # Remember the task that wasn't done fully (maybe no task in the queue)
@@ -128,6 +131,7 @@ class Agent:
         :param tasks: list of tasks
         """
         self.tasks.extend(tasks)
+        self.tasks = sorted(self.tasks, key=lambda x: x.step)
 
     def update_theta_hat(self) -> None:
         """

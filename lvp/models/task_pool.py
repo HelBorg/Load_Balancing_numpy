@@ -67,7 +67,6 @@ class TaskPool:
             tasks[step].append(Task(step, abs(np.random.normal(COMPL_MEAN, COMPL_DISTR))))
 
         # Create initial tasks
-        # compl = np.random.normal(COMPL_MEAN, COMPL_DISTR, size=size)
         compl = np.random.uniform(COMPL_MEAN - COMPL_DISTR, COMPL_MEAN + COMPL_DISTR, size=size)
         add = [Task(0, comp) for comp in compl]
         tasks[0].extend(add)

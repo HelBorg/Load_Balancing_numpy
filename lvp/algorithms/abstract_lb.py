@@ -1,5 +1,6 @@
 import logging
 import os
+from collections import defaultdict
 
 import numpy as np
 import pandas as pd
@@ -30,6 +31,7 @@ class LbAlgorithm:
         self.theta_hat = []
         self.sequence = []
         self.sequence_2 = []
+        self.result_dict = defaultdict(lambda: {})
 
         # Set up logging
         file_path = os.path.realpath(__file__)
@@ -66,13 +68,36 @@ class LbAlgorithm:
             [agent.update_with_new_tasks(step) for agent in self.agents]
             self.sequence.append([agent.get_real_queue_length() for agent in self.agents])
             self.sequence_2.append([agent.theta_hat for agent in self.agents])
+            for agent in self.agents:
+                self.result_dict[step].update({
+                    f"Real queue {agent.id}": agent.get_real_queue_length(),
+                    f"Queue len {agent.id}": agent.theta_hat,
+                })
 
             # Complete some tasks
-            [agent.complete_tasks() for agent in self.agents]
+            [agent.complete_tasks(step) for agent in self.agents]
 
             self.algorithm_step(is_logging, step)
 
             print(f"Step {step} is completed")
+
+        # create results
+        self.generate_results()
+
+    def generate_results(self):
+        res_completed_step = defaultdict(lambda: [])
+        for agent in self.agents:
+            for task in agent.all_tasks:
+                res_completed_step[task.step].extend(task.completed_step)
+        for step, completed_steps in res_completed_step.items():
+            if not completed_steps:
+                continue
+
+            self.result_dict[step].update({
+                "min_compl_step": min(completed_steps),
+                "mean_compl_step": np.mean(completed_steps),
+                "max_compl_step": max(completed_steps)
+            })
 
     def create_agents(self, num_steps, generate, productivities):
         task_pool = self.create_task_pool(num_steps, generate)
