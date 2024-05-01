@@ -29,8 +29,6 @@ class LbAlgorithm:
 
         # Results
         self.theta_hat = []
-        self.sequence = []
-        self.sequence_2 = []
         self.result_dict = defaultdict(lambda: {})
 
         # Set up logging
@@ -66,12 +64,10 @@ class LbAlgorithm:
 
             # Get new tasks
             [agent.update_with_new_tasks(step) for agent in self.agents]
-            self.sequence.append([agent.get_real_queue_length() for agent in self.agents])
-            self.sequence_2.append([agent.theta_hat for agent in self.agents])
             for agent in self.agents:
                 self.result_dict[step].update({
-                    f"Real queue {agent.id}": agent.get_real_queue_length(),
-                    f"Queue len {agent.id}": agent.theta_hat,
+                    f"Real queue Agent_{agent.id}": agent.get_real_queue_length(),
+                    f"Queue len Agent_{agent.id}": agent.theta_hat,
                 })
 
             # Complete some tasks
@@ -88,15 +84,20 @@ class LbAlgorithm:
         res_completed_step = defaultdict(lambda: [])
         for agent in self.agents:
             for task in agent.all_tasks:
-                res_completed_step[task.step].extend(task.completed_step)
+                if not task.completed_step:
+                    continue
+
+                res_completed_step[task.step].append(task.completed_step)
+
         for step, completed_steps in res_completed_step.items():
             if not completed_steps:
                 continue
 
             self.result_dict[step].update({
-                "min_compl_step": min(completed_steps),
-                "mean_compl_step": np.mean(completed_steps),
-                "max_compl_step": max(completed_steps)
+                "min_compl_step": min(completed_steps) - step,
+                "mean_compl_step": np.mean(completed_steps) - step,
+                "median_compl_step": np.median(completed_steps) - step,
+                "max_compl_step": max(completed_steps) - step
             })
 
     def create_agents(self, num_steps, generate, productivities):

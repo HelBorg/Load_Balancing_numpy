@@ -8,8 +8,6 @@ from multiprocessing import Manager, Pool, Lock, Value, cpu_count
 from multiprocessing.pool import ThreadPool
 from typing import Any, Iterator
 
-import numpy as np
-
 LOG_LEVEL = "DEBUG"
 
 
@@ -123,7 +121,7 @@ class ParallelProcessing:
     def get_shared_vars(self, manager: Manager, shared_vars) -> tuple:
         return tuple()
 
-    def run(self, args_list: Iterator[tuple], use_multithreading: bool = False, shared_vars = None) -> dict:
+    def run(self, args_list: Iterator[tuple], use_multithreading: bool = False, shared_vars=None) -> dict:
         """
         Run processes in parallel.
 
@@ -144,7 +142,8 @@ class ParallelProcessing:
         else:
             init_args = (Lock(), )
 
-        pool = Pool(processes=self._n_jobs, initializer=self.init_child, initargs=init_args) if not use_multithreading else ThreadPool(processes=self._n_jobs)
+        pool = Pool(processes=self._n_jobs, initializer=self.init_child,
+                    initargs=init_args) if not use_multithreading else ThreadPool(processes=self._n_jobs)
 
         start_time = datetime.now()
 
